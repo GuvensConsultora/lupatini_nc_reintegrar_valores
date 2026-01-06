@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <record id="view_account_move_reversal_inherit_reverse_refund" model="ir.ui.view">
+    <field name="name">account.move.reversal.form.inherit.reverse.refund</field>
+    <field name="model">account.move.reversal</field>
+    <field name="inherit_id" ref="account.view_account_move_reversal"/>
+    <field name="arch" type="xml">
+
+      <!-- Agrega botón al lado de 'Revertir' -->
+      <xpath expr="//footer/button[@name='reverse_moves']" position="after">
+        <button name="action_reverse_and_refund_payments"
+                type="object"
+                class="btn-primary"
+                string="Revertir y revertir pagos"
+                groups="nc_reverse_payments.group_reverse_refund_payments"/>
+      </xpath>
+
+    </field>
+  </record>
+</odoo>
