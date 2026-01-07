@@ -1,1 +1,1 @@
-from . import account_move_reversal.py
+from . import account_move_reversal
