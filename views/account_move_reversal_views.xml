@@ -5,16 +5,14 @@
     <field name="model">account.move.reversal</field>
     <field name="inherit_id" ref="account.view_account_move_reversal"/>
     <field name="arch" type="xml">
-
       <!-- Agrega botón al lado de 'Revertir' -->
-      <xpath expr="//footer/button[@name='reverse_moves']" position="after">
-        <button name="action_reverse_and_refund_payments"
-                type="object"
-                class="btn-primary"
-                string="Revertir y revertir pagos" />
-                <!--groups="nc_reverse_payments.group_reverse_refund_payments"-->
+	<xpath expr="//footer/button[@name='refund_moves']" position="after">
+            <button name="action_reverse_and_refund_payments"
+                    type="object"
+                    class="btn-primary"
+                    string="Revertir y revertir pagos" />
+            <!--groups="nc_reverse_payments.group_reverse_refund_payments"-->
       </xpath>
-
     </field>
   </record>
 </odoo>
