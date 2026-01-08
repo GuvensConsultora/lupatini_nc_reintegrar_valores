@@ -12,7 +12,7 @@
                 type="object"
                 class="btn-primary"
                 string="Revertir y revertir pagos"
-                groups="nc_reverse_payments.group_reverse_refund_payments"/>
+                <!--groups="nc_reverse_payments.group_reverse_refund_payments"--> />
       </xpath>
 
     </field>

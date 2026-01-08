@@ -6,7 +6,7 @@
     "summary": "Agrega botón en Nota de crédito para generar NC y revertir cobros imputados (ventas, sin multi).",
     "depends": ["account"],
     "data": [
-        "security/security.xml",
+        # "security/security.xml",
         "views/account_move_reversal_views.xml",
     ],
     "installable": True,
