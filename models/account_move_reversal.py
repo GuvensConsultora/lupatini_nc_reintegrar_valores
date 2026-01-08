@@ -34,7 +34,6 @@ class AccountMoveReversal(models.TransientModel):
                 pay_move = other_line.move_id
                 payment = pay_move.payment_id
                 if not payment:
-                    # Si querés contemplar statement lines sin payment_id, se agrega acá.
                     continue
 
                 if payment.partner_type != "customer" or payment.payment_type != "inbound":
@@ -260,7 +259,6 @@ class AccountMoveReversal(models.TransientModel):
                 subject=subject,
                 message_type="comment",
                 subtype_xmlid="mail.mt_note",
-                content_subtype="html",
             )
 
             # Cada NC
@@ -270,7 +268,7 @@ class AccountMoveReversal(models.TransientModel):
                     subject=subject,
                     message_type="comment",
                     subtype_xmlid="mail.mt_note",
-                    content_subtype="html",
                 )
 
         return action
+
