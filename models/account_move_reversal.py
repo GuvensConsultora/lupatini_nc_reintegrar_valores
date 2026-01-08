@@ -1,68 +1,12 @@
-# -*- coding: utf-8 -*-
 from odoo import fields, models, _
 from odoo.exceptions import UserError
-
 
 class AccountMoveReversal(models.TransientModel):
     _inherit = "account.move.reversal"
 
-    def _get_receivable_lines(self, move):
-        """Líneas AR de la factura."""
-        return move.line_ids.filtered(lambda l: (
-            not l.display_type
-            and l.account_id.account_type == "asset_receivable"
-        ))
-
-    def _collect_allocations(self, invoice_move):
-        """
-        Recolecta imputaciones (account.partial.reconcile) entre factura y cobros (account.payment).
-        Devuelve lista de dicts con:
-          - partial
-          - payment
-          - payment_counterpart_line (línea AR del pago)
-          - amount_company (monto imputado en moneda compañía)
-        """
-        allocations = []
-        inv_lines = self._get_receivable_lines(invoice_move)
-
-        for inv_line in inv_lines:
-            partials = inv_line.matched_debit_ids | inv_line.matched_credit_ids
-            for partial in partials:
-                other_line = partial.debit_move_id if partial.credit_move_id == inv_line else partial.credit_move_id
-                payment_move = other_line.move_id
-                payment = payment_move.payment_id
-                if not payment:
-                    # Si querés incluir bank statement sin payment_id, se agrega acá.
-                    continue
-
-                # Ventas: cobros de cliente
-                if payment.payment_type != "inbound" or payment.partner_type != "customer":
-                    continue
-
-                allocations.append({
-                    "partial": partial,
-                    "payment": payment,
-                    "payment_counterpart_line": other_line,
-                    "amount_company": partial.amount,  # ARS (moneda compañía)
-                })
-
-        return allocations
-
-    def _pick_outbound_method_line(self, journal, fallback_line=None):
-        """
-        Elige método outbound para el diario.
-        Intenta usar el mismo método del cobro si tiene outbound; si no, toma el primero outbound del diario.
-        """
-        if fallback_line and getattr(fallback_line, "payment_type", None) == "outbound":
-            return fallback_line
-        return journal.payment_method_line_ids.filtered(lambda l: l.payment_type == "outbound")[:1]
+    # ... (helpers _get_receivable_lines / _collect_allocations / _pick_outbound_method_line)
 
     def action_reverse_and_refund_payments(self):
-        """
-        1) Desimputa factura<->cobros solo por lo aplicado a esa factura (unlink parciales).
-        2) Genera NC (reverse_moves estándar).
-        3) Crea pagos de devolución outbound por importes imputados y concilia contra el cobro original (AR).
-        """
         self.ensure_one()
 
         invoices = self.move_ids
@@ -76,17 +20,39 @@ class AccountMoveReversal(models.TransientModel):
         # 1) Recolectar parciales factura<->pagos
         inv_allocs = {inv.id: self._collect_allocations(inv) for inv in invoices}
 
+        # === LOG PREVIO (antes de unlink) ===
+        log_pre = {}
+        for inv in invoices:
+            rows = []
+            for a in inv_allocs[inv.id]:
+                pay = a["payment"]
+                rows.append({
+                    "payment_name": pay.name or _("(sin nombre)"),
+                    "payment_move": pay.move_id.name or _("(sin asiento)"),
+                    "journal": pay.journal_id.display_name,
+                    "amount": a["amount_company"],
+                })
+            log_pre[inv.id] = rows
+
         # 2) Desconciliar SOLO lo aplicado a esta factura
         for inv in invoices:
             for a in inv_allocs[inv.id]:
                 a["partial"].unlink()
 
-        # 3) Generar NC con wizard estándar (respeta refund_method del wizard)
-        action = self.reverse_moves()
+        # 3) Generar NC con wizard estándar (en tu Odoo 17 suele ser refund_moves)
+        action = self.refund_moves() if hasattr(self, "refund_moves") else self.reverse_moves()
+
+        # Buscar NCs creadas por esta operación (por reversed_entry_id)
+        credit_notes = self.env["account.move"].search([
+            ("reversed_entry_id", "in", invoices.ids),
+        ])
 
         # 4) Crear devoluciones y conciliar contra cobros originales
         Payment = self.env["account.payment"]
         refund_date = self.date or fields.Date.context_today(self)
+
+        # === LOG POST (devoluciones creadas) ===
+        refunds_log = {inv.id: [] for inv in invoices}
 
         for inv in invoices:
             allocs = inv_allocs[inv.id]
@@ -133,4 +99,51 @@ class AccountMoveReversal(models.TransientModel):
                 ref_ar = refund.move_id.line_ids.filtered(lambda l: not l.display_type and l.account_id.id == acc_id and not l.reconciled)
                 (orig_ar | ref_ar).reconcile()
 
-        return action
+                refunds_log[inv.id].append({
+                    "refund_payment_name": refund.name or _("(sin nombre)"),
+                    "refund_move": refund.move_id.name or _("(sin asiento)"),
+                    "journal": refund.journal_id.display_name,
+                    "amount": amount,
+                })
+
+# 5) Postear en chatter por factura Y por cada NC
+for inv in invoices:
+    inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
+
+    body = f"""
+    <div>
+      <p><b>NC + Reversión de medios de pago</b></p>
+
+      <p><b>Factura origen:</b> {inv.name or ''}</p>
+
+      <p><b>Notas de crédito generadas:</b></p>
+      <ul>
+        {''.join([f"<li><b>{cn.name}</b></li>" for cn in inv_cns]) or "<li>(No se detectaron NCs)</li>"}
+      </ul>
+
+      <p><b>Cobros desimputados (según lo aplicado a esta factura):</b></p>
+      <ul>
+        {''.join([f"<li>Pago: <b>{r['payment_name']}</b> — Asiento: <b>{r['payment_move']}</b> — Diario: {r['journal']} — Importe: {r['amount']}</li>"
+                  for r in log_pre.get(inv.id, [])]) or "<li>(Sin cobros imputados)</li>"}
+      </ul>
+
+      <p><b>Devoluciones creadas:</b></p>
+      <ul>
+        {''.join([f"<li>Devolución: <b>{r['refund_payment_name']}</b> — Asiento: <b>{r['refund_move']}</b> — Diario: {r['journal']} — Importe: {r['amount']}</li>"
+                  for r in refunds_log.get(inv.id, [])]) or "<li>(No se generaron devoluciones)</li>"}
+      </ul>
+    </div>
+    """
+
+    # En la factura
+    inv.message_post(
+        body=body,
+        subject=_("NC y reversión de pagos ejecutada"),
+    )
+
+    # En cada NC creada
+    for cn in inv_cns:
+        cn.message_post(
+            body=body,
+            subject=_("NC y reversión de pagos ejecutada"),
+        )
