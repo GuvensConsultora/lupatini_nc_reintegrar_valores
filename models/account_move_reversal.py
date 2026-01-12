@@ -16,7 +16,7 @@ class AccountMoveReversal(models.TransientModel):
     def _get_receivable_lines(self, move):
         """Líneas AR (cuentas por cobrar) de la factura."""
         return move.line_ids.filtered(
-            lambda l: not l.display_type and l.account_id.account_type == "asset_receivable"
+            lambda l: l.account_id.account_type == "asset_receivable"
         )
 
     def _collect_allocations(self, invoice_move):
