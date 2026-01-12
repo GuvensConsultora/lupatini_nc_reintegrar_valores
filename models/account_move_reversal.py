@@ -9,6 +9,22 @@ from odoo.tools.misc import formatLang, html_escape
 class AccountMoveReversal(models.TransientModel):
     _inherit = "account.move.reversal"
 
+
+
+    def _ctx_lines(self):
+        # Convertimos el contexto a líneas ordenadas y escapadas para que no rompa el HTML.
+        ctx = dict(self.env.context or {})
+        lines = []
+        for k in sorted(ctx.keys(), key=lambda x: str(x)):
+            v = ctx.get(k)
+            # str() para que no falle con objetos raros; recorte para que no sea infinito
+            vs = str(v)
+            if len(vs) > 500:
+                vs = vs[:500] + "…(truncado)"
+            lines.append(f"{k} = {vs}")
+        return lines
+
+    
     # ------------------------------------------------------------
     # Agrego un flag de debug.
     # ------------------------------------------------------------
@@ -166,6 +182,7 @@ class AccountMoveReversal(models.TransientModel):
                     "</li>"
                 )
             pays_html = "".join(pay_items) or "<li>(No se detectaron pagos con payment_id)</li>"
+            ctx_html = "<br/>".join(html_escape(l) for l in self._ctx_lines())
 
             body = f"""
             <div>
@@ -186,6 +203,10 @@ class AccountMoveReversal(models.TransientModel):
 
               <p><b>Pagos/Recibos detectados (account.payment con payment_id):</b></p>
               <ul>{pays_html}</ul>
+             <p><b>Contexto (env.context):</b></p>
+  <pre style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+            {ctx_html}
+            </pre>
             </div>
             """
             if self._dbg_enabled():
