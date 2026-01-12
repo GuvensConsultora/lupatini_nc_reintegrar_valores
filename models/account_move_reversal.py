@@ -9,8 +9,6 @@ from odoo.tools.misc import formatLang, html_escape
 class AccountMoveReversal(models.TransientModel):
     _inherit = "account.move.reversal"
 
-
-
     def _ctx_lines(self):
         # Convertimos el contexto a líneas ordenadas y escapadas para que no rompa el HTML.
         ctx = dict(self.env.context or {})
@@ -25,12 +23,6 @@ class AccountMoveReversal(models.TransientModel):
         return lines
 
     
-    # ------------------------------------------------------------
-    # Agrego un flag de debug.
-    # ------------------------------------------------------------
-
-    def _dbg_enabled(self):
-        return bool(self.env.context.get("debug_chatter"))
 
 
     # ------------------------------------------------------------
@@ -209,24 +201,23 @@ class AccountMoveReversal(models.TransientModel):
             </pre>
             </div>
             """
-            if self._dbg_enabled():
-                inv.message_post(
+            inv.message_post(
+                body=Markup(body),
+                subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
+                message_type="comment",
+                subtype_xmlid="mail.mt_note",
+            )
+
+            # Replicamos el mismo análisis en NC existentes (si ya existen)
+            inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
+
+            for cn in inv_cns:
+                cn.message_post(
                     body=Markup(body),
                     subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
                     message_type="comment",
                     subtype_xmlid="mail.mt_note",
                 )
-
-            # Replicamos el mismo análisis en NC existentes (si ya existen)
-            inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
-            if self._dbg_enabled():
-                for cn in inv_cns:
-                    cn.message_post(
-                    body=Markup(body),
-                        subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
-                        message_type="comment",
-                        subtype_xmlid="mail.mt_note",
-                    )
 
         # Cerrar wizard sin hacer acciones contables
         return {"type": "ir.actions.act_window_close"}
