@@ -57,23 +57,25 @@ class AccountMoveReversal(models.TransientModel):
         return allocations
 
     def _outbound_method_line_from_inbound(self, inbound_payment):
-        """
-        Dado un cobro inbound, devuelve la línea OUTBOUND equivalente:
-        mismo journal + mismo payment_method, pero payment_type='outbound'.
-        """
         inbound_line = inbound_payment.payment_method_line_id
         if not inbound_line or not inbound_line.payment_method_id:
             return False
 
-        return self.env["account.payment.method.line"].search(
-            [
-                ("journal_id", "=", inbound_payment.journal_id.id),
-                ("payment_method_id", "=", inbound_line.payment_method_id.id),
-                ("payment_type", "=", "outbound"),
-            ],
-            limit=1,
-        )
+        code = getattr(inbound_line.payment_method_id, "code", False)
+        domain = [
+            ("journal_id", "=", inbound_payment.journal_id.id),
+            ("payment_type", "=", "outbound"),
+        ]
+        if code:
+            domain.append(("payment_method_id.code", "=", code))
+        else:
+            domain.append(("payment_method_id.name", "=", inbound_line.payment_method_id.name))
 
+        return self.env["account.payment.method.line"].search(domain, limit=1)
+
+
+
+    
     def _reconcile_by_account(self, lines_a, lines_b):
         """Concilia por cuenta contable para no mezclar cuentas distintas."""
         all_lines = (lines_a | lines_b).filtered(lambda l: not l.reconciled)
