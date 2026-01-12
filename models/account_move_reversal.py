@@ -10,6 +10,14 @@ class AccountMoveReversal(models.TransientModel):
     _inherit = "account.move.reversal"
 
     # ------------------------------------------------------------
+    # Agrego un flag de debug.
+    # ------------------------------------------------------------
+
+    def _dbg_enabled(self):
+        return bool(self.env.context.get("debug_chatter"))
+
+
+    # ------------------------------------------------------------
     # Helpers (solo para levantar info y formatear)
     # ------------------------------------------------------------
 
@@ -180,23 +188,24 @@ class AccountMoveReversal(models.TransientModel):
               <ul>{pays_html}</ul>
             </div>
             """
-
-            inv.message_post(
-                body=Markup(body),
-                subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
-                message_type="comment",
-                subtype_xmlid="mail.mt_note",
-            )
-
-            # Replicamos el mismo análisis en NC existentes (si ya existen)
-            inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
-            for cn in inv_cns:
-                cn.message_post(
+            if self._dbg_enabled():
+                inv.message_post(
                     body=Markup(body),
                     subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
                     message_type="comment",
                     subtype_xmlid="mail.mt_note",
                 )
+
+            # Replicamos el mismo análisis en NC existentes (si ya existen)
+            inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
+            if self._dbg_enabled():
+                for cn in inv_cns:
+                    cn.message_post(
+                    body=Markup(body),
+                        subject=_("ANÁLISIS cobros vinculados (solo lectura)"),
+                        message_type="comment",
+                        subtype_xmlid="mail.mt_note",
+                    )
 
         # Cerrar wizard sin hacer acciones contables
         return {"type": "ir.actions.act_window_close"}
