@@ -15,12 +15,20 @@
       </xpath>
 
       <!-- Ocultar botón "Revertir" (Reverse Entry) -->
+      <!-- Por qué: Evitar que reviertan nuevamente después de ejecutar el proceso -->
       <xpath expr="//button[@name='action_reverse']" position="attributes">
         <attribute name="invisible">reversed_with_payments</attribute>
       </xpath>
 
       <!-- Ocultar botón "Reiniciar a borrador" (Reset to draft) -->
-      <xpath expr="//button[@name='button_draft']" position="attributes">
+      <!-- Por qué: Una vez procesado, no debe volver a borrador -->
+      <!-- Patrón: Buscar por special="cancel" que es el atributo del botón -->
+      <xpath expr="//button[@special='cancel']" position="attributes">
+        <attribute name="invisible">reversed_with_payments</attribute>
+      </xpath>
+
+      <!-- Ocultar botón draft alternativo si existe -->
+      <xpath expr="//button[@name='button_draft']" position="attributes" optional="true">
         <attribute name="invisible">reversed_with_payments</attribute>
       </xpath>
 
