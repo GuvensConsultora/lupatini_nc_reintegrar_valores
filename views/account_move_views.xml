@@ -22,13 +22,17 @@
 
       <!-- Ocultar botón "Reiniciar a borrador" (Reset to draft) -->
       <!-- Por qué: Una vez procesado, no debe volver a borrador -->
-      <!-- Patrón: Buscar por special="cancel" que es el atributo del botón -->
-      <xpath expr="//button[@special='cancel']" position="attributes">
+      <!-- Patrón: Buscar diferentes variantes del botón con optional="true" -->
+
+      <xpath expr="//button[@special='cancel']" position="attributes" optional="true">
         <attribute name="invisible">reversed_with_payments</attribute>
       </xpath>
 
-      <!-- Ocultar botón draft alternativo si existe -->
       <xpath expr="//button[@name='button_draft']" position="attributes" optional="true">
+        <attribute name="invisible">reversed_with_payments</attribute>
+      </xpath>
+
+      <xpath expr="//button[@name='button_cancel']" position="attributes" optional="true">
         <attribute name="invisible">reversed_with_payments</attribute>
       </xpath>
 
