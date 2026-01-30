@@ -295,10 +295,15 @@ class AccountMoveReversal(models.TransientModel):
                 )
             refs_html = "".join(ref_items) or "<li>(No se crearon reversiones)</li>"
 
+            # Por qué: Incluir el motivo/razón del wizard al inicio del mensaje
+            obs_html = ""
+            if self.reason:
+                obs_html = f"<p><b>Obs:</b> {html_escape(self.reason)}</p>"
+
             body = f"""
             <div>
               <p><b>NC + reversión de cobros</b></p>
-
+              {obs_html}
               <p><b>Factura origen:</b> {inv_link}</p>
 
               <p><b>Notas de crédito (reversed_entry_id):</b></p>
