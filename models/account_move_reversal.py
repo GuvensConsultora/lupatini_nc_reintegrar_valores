@@ -329,4 +329,25 @@ class AccountMoveReversal(models.TransientModel):
                     subtype_xmlid="mail.mt_note",
                 )
 
+            # Por qué: Registrar en chatter de cada cobro original
+            # Patrón: Trazabilidad completa - cada registro afectado tiene el log
+            for r in pre_logs.get(inv.id, []):
+                pay = r["payment"]
+                pay.message_post(
+                    body=Markup(body),
+                    subject=subject,
+                    message_type="comment",
+                    subtype_xmlid="mail.mt_note",
+                )
+
+            # Por qué: Registrar en chatter de cada reversión
+            for r in refunds_log_by_inv.get(inv.id, []):
+                refund = r["refund_payment"]
+                refund.message_post(
+                    body=Markup(body),
+                    subject=subject,
+                    message_type="comment",
+                    subtype_xmlid="mail.mt_note",
+                )
+
         return action
