@@ -20,6 +20,12 @@
         <attribute name="invisible">reversed_with_payments</attribute>
       </xpath>
 
+      <!-- Ocultar botón "Reiniciar a borrador" -->
+      <!-- Por qué: Buscar dentro del header específicamente -->
+      <xpath expr="//header//button[@name='button_draft']" position="attributes">
+        <attribute name="invisible">reversed_with_payments</attribute>
+      </xpath>
+
     </field>
   </record>
 </odoo>
