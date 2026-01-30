@@ -360,4 +360,10 @@ class AccountMoveReversal(models.TransientModel):
                     subtype_xmlid="mail.mt_note",
                 )
 
+            # Por qué: Marcar factura y NC como procesadas para ocultar botones
+            # Patrón: write() para actualizar campo booleano sin validaciones
+            inv.write({"reversed_with_payments": True})
+            for cn in inv_cns:
+                cn.write({"reversed_with_payments": True})
+
         return action

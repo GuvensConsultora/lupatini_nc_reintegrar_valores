@@ -8,6 +8,7 @@
     "data": [
         # "security/security.xml",
         "views/account_move_reversal_views.xml",
+        "views/account_move_views.xml",
     ],
     "installable": True,
     "application": False,

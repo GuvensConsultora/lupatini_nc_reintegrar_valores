@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- Por qué: Ocultar botones después de reversión con cobros -->
+  <!-- Patrón: Heredar vista y usar attrs invisible basado en campo booleano -->
+  <record id="view_account_move_form_hide_buttons" model="ir.ui.view">
+    <field name="name">account.move.form.hide.buttons</field>
+    <field name="model">account.move</field>
+    <field name="inherit_id" ref="account.view_move_form"/>
+    <field name="arch" type="xml">
+
+      <!-- Ocultar botón "Revertir" (Reverse Entry) -->
+      <xpath expr="//button[@name='action_reverse']" position="attributes">
+        <attribute name="invisible">reversed_with_payments</attribute>
+      </xpath>
+
+      <!-- Ocultar botón "Reiniciar a borrador" (Reset to draft) -->
+      <xpath expr="//button[@name='button_draft']" position="attributes">
+        <attribute name="invisible">reversed_with_payments</attribute>
+      </xpath>
+
+    </field>
+  </record>
+</odoo>
