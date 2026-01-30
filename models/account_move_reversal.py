@@ -73,9 +73,83 @@ class AccountMoveReversal(models.TransientModel):
 
         return self.env["account.payment.method.line"].search(domain, limit=1)
 
+    def _get_pickings_from_invoice(self, invoice):
+        """
+        Obtiene albaranes de entrega desde la factura.
+        Por qué: Factura → sale.order → stock.picking (outgoing)
+        """
+        # Por qué: En Odoo, invoice_origin tiene el nombre del SO (ej: "S00001")
+        pickings = self.env["stock.picking"]
+
+        if not invoice.invoice_origin:
+            return pickings
+
+        # Buscar sale.order por name = invoice_origin
+        sale_orders = self.env["sale.order"].search([("name", "=", invoice.invoice_origin)])
+
+        if not sale_orders:
+            return pickings
+
+        # Por qué: picking_ids son los albaranes del pedido
+        # Filtrar solo outgoing (entregas, no recepciones)
+        for so in sale_orders:
+            pickings |= so.picking_ids.filtered(
+                lambda p: p.picking_type_id.code == "outgoing"
+            )
+
+        return pickings
+
+    def _process_picking_and_return(self, picking):
+        """
+        Confirma picking si es necesario y crea devolución.
+        Retorna: (picking, return_picking, acciones_realizadas)
+        """
+        actions = []
+
+        # Por qué: Solo pickings 'done' pueden generar devolución
+        if picking.state not in ("done",):
+            # Confirmar picking
+            if picking.state == "draft":
+                picking.action_confirm()
+                actions.append("confirmed")
+
+            # Asignar disponibilidad
+            if picking.state in ("confirmed", "assigned", "waiting"):
+                picking.action_assign()
+                actions.append("assigned")
+
+            # Validar (completar entrega)
+            if picking.state == "assigned":
+                # Por qué: button_validate procesa el wizard de validación
+                picking.button_validate()
+                actions.append("validated")
+
+        # Crear devolución usando wizard estándar
+        # Por qué: stock.return.picking es el wizard estándar de Odoo
+        return_wizard = self.env["stock.return.picking"].with_context(
+            active_id=picking.id,
+            active_model="stock.picking"
+        ).create({})
+
+        # Por qué: create_returns() genera el picking de devolución
+        result = return_wizard.create_returns()
+
+        # Obtener el picking de devolución creado
+        return_picking_id = result.get("res_id")
+        return_picking = self.env["stock.picking"].browse(return_picking_id) if return_picking_id else self.env["stock.picking"]
+
+        # Confirmar devolución
+        if return_picking and return_picking.state == "draft":
+            return_picking.action_confirm()
+            actions.append("return_confirmed")
+
+        if return_picking and return_picking.state == "assigned":
+            return_picking.button_validate()
+            actions.append("return_validated")
+
+        return picking, return_picking, actions
 
 
-    
     def _reconcile_by_account(self, lines_a, lines_b):
         """Concilia por cuenta contable para no mezclar cuentas distintas."""
         all_lines = (lines_a | lines_b).filtered(lambda l: not l.reconciled)
@@ -256,7 +330,26 @@ class AccountMoveReversal(models.TransientModel):
                     }
                 )
 
-        # 6) Chatter SIEMPRE (factura + NC)
+        # 5.5) Procesar albaranes y devoluciones
+        pickings_log_by_inv = {inv.id: [] for inv in invoices}
+
+        for inv in invoices:
+            # Por qué: Buscar albaranes asociados a la factura vía presupuesto
+            pickings = self._get_pickings_from_invoice(inv)
+
+            for picking in pickings:
+                # Por qué: Confirmar picking y crear devolución
+                orig_picking, return_picking, actions = self._process_picking_and_return(picking)
+
+                pickings_log_by_inv[inv.id].append(
+                    {
+                        "orig_picking": orig_picking,
+                        "return_picking": return_picking,
+                        "actions": actions,
+                    }
+                )
+
+        # 6) Chatter SIEMPRE (factura + NC + cobros + albaranes)
         for inv in invoices:
             cur = inv.company_currency_id
             inv_link = self._link(inv, inv.name or inv.display_name)
@@ -295,6 +388,25 @@ class AccountMoveReversal(models.TransientModel):
                 )
             refs_html = "".join(ref_items) or "<li>(No se crearon reversiones)</li>"
 
+            # Por qué: Construir HTML de albaranes y devoluciones
+            picking_items = []
+            for p in pickings_log_by_inv.get(inv.id, []):
+                orig = p["orig_picking"]
+                ret = p["return_picking"]
+                acts = p["actions"]
+                actions_text = ", ".join(acts) if acts else "ninguna"
+
+                picking_items.append(
+                    "<li>"
+                    f"Albarán original: <b>{self._link(orig, orig.name or orig.display_name)}</b>"
+                    f" — Estado original: {html_escape(orig.state)}"
+                    f" — Acciones: {html_escape(actions_text)}"
+                    + (f" — Devolución: <b>{self._link(ret, ret.name or ret.display_name)}</b>"
+                       f" — Estado: {html_escape(ret.state)}" if ret else " — (No se generó devolución)")
+                    + "</li>"
+                )
+            pickings_html = "".join(picking_items) or "<li>(No se encontraron albaranes asociados)</li>"
+
             # Por qué: Incluir el motivo/razón del wizard al inicio del mensaje
             obs_html = ""
             if self.reason:
@@ -307,7 +419,7 @@ class AccountMoveReversal(models.TransientModel):
             body = f"""
             <div>
               {logo_html}
-              <p><b>NC + reversión de cobros</b></p>
+              <p><b>NC + reversión de cobros + devolución de mercaderías</b></p>
               {obs_html}
               <p><b>Factura origen:</b> {inv_link}</p>
 
@@ -319,6 +431,9 @@ class AccountMoveReversal(models.TransientModel):
 
               <p><b>Reversiones creadas y conciliación cobro ↔ reversión:</b></p>
               <ul>{refs_html}</ul>
+
+              <p><b>Albaranes y devoluciones de mercaderías:</b></p>
+              <ul>{pickings_html}</ul>
             </div>
             """
 

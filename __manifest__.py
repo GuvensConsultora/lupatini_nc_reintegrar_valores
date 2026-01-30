@@ -4,7 +4,7 @@
     "version": "17.0.1.0.0",
     "category": "Accounting",
     "summary": "Agrega botón en Nota de crédito para generar NC y revertir cobros imputados (ventas, sin multi).",
-    "depends": ["account"],
+    "depends": ["account", "stock", "sale_stock"],
     "data": [
         # "security/security.xml",
         "views/account_move_reversal_views.xml",
