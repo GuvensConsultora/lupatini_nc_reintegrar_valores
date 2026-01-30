@@ -300,8 +300,13 @@ class AccountMoveReversal(models.TransientModel):
             if self.reason:
                 obs_html = f"<p><b>Obs:</b> {html_escape(self.reason)}</p>"
 
+            # Por qué: Logo del módulo para identificar el origen del mensaje
+            # Tip: Usar ruta absoluta desde el módulo para que funcione en cualquier entorno
+            logo_html = '<p><img src="/lupatini_nc_reintegrar_valores/static/src/img/Icono.jpg" style="max-width: 50px; max-height: 50px; vertical-align: middle;" alt="Logo módulo"/></p>'
+
             body = f"""
             <div>
+              {logo_html}
               <p><b>NC + reversión de cobros</b></p>
               {obs_html}
               <p><b>Factura origen:</b> {inv_link}</p>

@@ -1,0 +1,2 @@
+# Directorio para imágenes usadas en vistas web/frontend
+# Acceso desde XML: /module_name/static/src/img/imagen.png

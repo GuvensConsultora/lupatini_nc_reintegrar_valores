@@ -1,0 +1,4 @@
+# Directorio para imágenes de descripción del módulo
+# - icon.png: Ícono del módulo (64x64 o 128x128)
+# - banner.png: Banner para Odoo Apps Store
+# - screenshots/: Capturas de pantalla del módulo
