@@ -10,7 +10,7 @@
             <button name="action_reverse_and_refund_payments"
                     type="object"
                     class="btn-primary"
-                    string="Revertir y revertir pagos" />
+                    string="Revertir con devoluciones" />
             <!--groups="nc_reverse_payments.group_reverse_refund_payments"-->
       </xpath>
     </field>
