@@ -170,6 +170,23 @@ class AccountMoveReversal(models.TransientModel):
     def _amt(self, amount, currency):
         return html_escape(formatLang(self.env, amount, currency_obj=currency))
 
+    def _create_egreso_payment_group(self, invoice, inbound_ar_lines, refund_date):
+        """
+        Crea account.payment.group (egreso de valores).
+        Por qué: Cuando el cobro original viene de un payment group (ingreso de valores),
+        el egreso también debe estar en un payment group para trazabilidad de recibos.
+        Patrón: _force_receiptbook constraint asigna talonario automáticamente al crear.
+        """
+        return self.env["account.payment.group"].create(
+            {
+                "partner_id": invoice.partner_id.id,
+                "partner_type": "customer",
+                "company_id": invoice.company_id.id,
+                "payment_date": refund_date,
+                "to_pay_move_line_ids": [(6, 0, inbound_ar_lines.ids)],
+            }
+        )
+
     # ------------------------------------------------------------
     # Action
     # ------------------------------------------------------------
@@ -250,6 +267,8 @@ class AccountMoveReversal(models.TransientModel):
         refund_date = self.date or fields.Date.context_today(self)
 
         refunds_log_by_inv = {inv.id: [] for inv in invoices}
+        # Por qué: Rastrear payment groups (egresos) para loguear en chatter
+        payment_groups_by_inv = {}
 
         for inv in invoices:
             allocs = inv_allocs[inv.id]
@@ -273,6 +292,21 @@ class AccountMoveReversal(models.TransientModel):
             inv_cns = cn_by_inv.get(inv.id, self.env["account.move"])
             cn_names = ", ".join(inv_cns.mapped("name")) if inv_cns else ""
 
+            # Por qué: Recolectar AR lines desreconciliadas de cobros para el payment group
+            # Patrón: to_pay_move_line_ids indica al grupo qué deuda/crédito saldar
+            inbound_ar_lines = self.env["account.move.line"]
+            for g in grouped.values():
+                orig_pay = g["orig_pay"]
+                acc_id = g["acc_id"]
+                inbound_ar_lines |= orig_pay.move_id.line_ids.filtered(
+                    lambda l, acc=acc_id: not l.display_type and l.account_id.id == acc and not l.reconciled
+                )
+
+            # Por qué: Crear payment group (egreso de valores) para agrupar reversiones
+            # Patrón: account.payment.group mantiene trazabilidad de recibos/talonarios
+            payment_group = self._create_egreso_payment_group(inv, inbound_ar_lines, refund_date)
+            payment_groups_by_inv[inv.id] = payment_group
+
             for g in grouped.values():
                 orig_pay = g["orig_pay"]
                 amount = g["amount"]
@@ -294,6 +328,7 @@ class AccountMoveReversal(models.TransientModel):
                         )
                     )
 
+                # Por qué: payment_group_id vincula el pago al grupo (egreso)
                 refund = Payment.create(
                     {
                         "payment_type": "outbound",
@@ -306,18 +341,9 @@ class AccountMoveReversal(models.TransientModel):
                         "currency_id": orig_pay.currency_id.id,
                         "ref": _("Reversión %s / NC %s / Factura %s")
                                % (orig_pay.name or "", cn_names, inv.name or ""),
+                        "payment_group_id": payment_group.id,
                     }
                 )
-                refund.action_post()
-
-                # Conciliar cobro original ↔ reversión (AR)
-                orig_ar = orig_pay.move_id.line_ids.filtered(
-                    lambda l: not l.display_type and l.account_id.id == acc_id and not l.reconciled
-                )
-                ref_ar = refund.move_id.line_ids.filtered(
-                    lambda l: not l.display_type and l.account_id.id == acc_id and not l.reconciled
-                )
-                (orig_ar | ref_ar).reconcile()
 
                 refunds_log_by_inv[inv.id].append(
                     {
@@ -329,6 +355,28 @@ class AccountMoveReversal(models.TransientModel):
                         "amount": amount,
                     }
                 )
+
+            # Por qué: Confirmar el payment group postea los pagos y reconcilia
+            # Patrón: post() es el método estándar de account.payment.group (adhoc)
+            payment_group.post()
+
+            # Por qué: Reconciliación de seguridad si el group no reconcilió automáticamente
+            for g in grouped.values():
+                orig_pay = g["orig_pay"]
+                acc_id = g["acc_id"]
+                orig_ar = orig_pay.move_id.line_ids.filtered(
+                    lambda l, acc=acc_id: not l.display_type and l.account_id.id == acc and not l.reconciled
+                )
+                if not orig_ar:
+                    continue
+                for r in refunds_log_by_inv[inv.id]:
+                    if r["orig_payment"].id != orig_pay.id:
+                        continue
+                    ref_ar = r["refund_payment"].move_id.line_ids.filtered(
+                        lambda l, acc=acc_id: not l.display_type and l.account_id.id == acc and not l.reconciled
+                    )
+                    if orig_ar and ref_ar:
+                        (orig_ar | ref_ar).reconcile()
 
         # 5.5) Procesar albaranes y devoluciones
         pickings_log_by_inv = {inv.id: [] for inv in invoices}
@@ -388,6 +436,13 @@ class AccountMoveReversal(models.TransientModel):
                 )
             refs_html = "".join(ref_items) or "<li>(No se crearon reversiones)</li>"
 
+            # Por qué: Link al payment group (egreso) en chatter
+            pg = payment_groups_by_inv.get(inv.id)
+            pg_html = (
+                f"<b>{self._link(pg, pg.display_name)}</b>"
+                if pg else "(Sin grupo de pago)"
+            )
+
             # Por qué: Construir HTML de albaranes y devoluciones
             picking_items = []
             for p in pickings_log_by_inv.get(inv.id, []):
@@ -431,6 +486,8 @@ class AccountMoveReversal(models.TransientModel):
 
               <p><b>Reversiones creadas y conciliación cobro ↔ reversión:</b></p>
               <ul>{refs_html}</ul>
+
+              <p><b>Grupo de pago (egreso de valores):</b> {pg_html}</p>
 
               <p><b>Albaranes y devoluciones de mercaderías:</b></p>
               <ul>{pickings_html}</ul>

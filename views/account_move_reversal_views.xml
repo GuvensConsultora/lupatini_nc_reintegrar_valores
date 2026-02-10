@@ -5,14 +5,25 @@
     <field name="model">account.move.reversal</field>
     <field name="inherit_id" ref="account.view_account_move_reversal"/>
     <field name="arch" type="xml">
-      <!-- Agrega botón al lado de 'Revertir' -->
-	<xpath expr="//footer/button[@name='refund_moves']" position="after">
-            <button name="action_reverse_and_refund_payments"
-                    type="object"
-                    class="btn-primary"
-                    string="Revertir con devoluciones" />
-            <!--groups="nc_reverse_payments.group_reverse_refund_payments"-->
+
+      <!-- Por qué: Ocultar "Revertir" estándar, solo se usa nuestro botón personalizado -->
+      <xpath expr="//footer/button[@name='refund_moves']" position="attributes">
+        <attribute name="invisible">1</attribute>
       </xpath>
+
+      <!-- Por qué: Ocultar "Revertir y crear factura rectificativa", no aplica a este flujo -->
+      <xpath expr="//footer/button[@name='modify_moves']" position="attributes">
+        <attribute name="invisible">1</attribute>
+      </xpath>
+
+      <!-- Por qué: Agregar nuestro botón como único primario del wizard -->
+      <xpath expr="//footer/button[@name='refund_moves']" position="after">
+        <button name="action_reverse_and_refund_payments"
+                type="object"
+                class="btn-primary"
+                string="Revertir con devoluciones" />
+      </xpath>
+
     </field>
   </record>
 </odoo>
