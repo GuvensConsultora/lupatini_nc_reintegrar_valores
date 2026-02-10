@@ -237,6 +237,11 @@ class AccountMoveReversal(models.TransientModel):
             for a in inv_allocs[inv.id]:
                 a["partial"].unlink()
 
+        # Por qué: Forzar recálculo de amount_residual y reconciled (campos stored)
+        # tras eliminar account.partial.reconcile — sin esto el ORM puede leer cache viejo
+        self.env.flush_all()
+        self.env.invalidate_all()
+
         # 3) Crear NC con wizard estándar
         if hasattr(self, "refund_moves"):
             action = self.refund_moves()
@@ -245,8 +250,11 @@ class AccountMoveReversal(models.TransientModel):
         else:
             raise UserError(_("No se encontró el método estándar para generar la nota de crédito en este wizard."))
 
-        # Obtener NCs creadas (link por reversed_entry_id)
-        credit_notes = self.env["account.move"].search([("reversed_entry_id", "in", invoices.ids)])
+        # Por qué: Usar new_move_ids (seteado por refund_moves) para tomar solo las NC recién creadas
+        # Patrón: Evitar search por reversed_entry_id que puede traer NC históricas previas
+        credit_notes = self.new_move_ids
+        if not credit_notes:
+            credit_notes = self.env["account.move"].search([("reversed_entry_id", "in", invoices.ids)])
 
         # 4) Conciliar Factura ↔ NC (AR)
         cn_by_inv = {}
@@ -254,9 +262,38 @@ class AccountMoveReversal(models.TransientModel):
             inv_cns = credit_notes.filtered(lambda m: m.reversed_entry_id.id == inv.id)
             cn_by_inv[inv.id] = inv_cns
 
+            # Por qué: IDs de las líneas AR de la factura para validar contra quién se concilió la NC
+            inv_ar_ids = set(self._get_receivable_lines(inv).ids)
+
             for cn in inv_cns:
                 if cn.state != "posted":
                     cn.action_post()
+
+                # Por qué: refund_moves() → _post() puede auto-conciliar la NC con el cobro
+                # (que quedó libre tras el unlink) en vez de con la factura.
+                # Si eso pasó, deshacemos esas conciliaciones incorrectas.
+                self.env.flush_all()
+                self.env.invalidate_all()
+
+                cn_ar = self._get_receivable_lines(cn)
+                for cn_line in cn_ar.filtered(lambda l: l.reconciled):
+                    wrong_partials = self.env["account.partial.reconcile"]
+                    partials = cn_line.matched_debit_ids | cn_line.matched_credit_ids
+                    for partial in partials:
+                        other = (
+                            partial.debit_move_id
+                            if partial.credit_move_id == cn_line
+                            else partial.credit_move_id
+                        )
+                        # Si la contraparte NO es una línea AR de la factura → conciliación incorrecta
+                        if other.id not in inv_ar_ids:
+                            wrong_partials |= partial
+                    if wrong_partials:
+                        wrong_partials.unlink()
+
+                # Por qué: Flush tras deshacer conciliaciones incorrectas
+                self.env.flush_all()
+                self.env.invalidate_all()
 
                 inv_ar = self._get_receivable_lines(inv)
                 cn_ar = self._get_receivable_lines(cn)
@@ -360,6 +397,11 @@ class AccountMoveReversal(models.TransientModel):
             # Patrón: post() es el método estándar de account.payment.group (adhoc)
             payment_group.post()
 
+            # Por qué: Forzar persistencia y recálculo tras postear payment group
+            # para que la conciliación de seguridad lea datos frescos
+            self.env.flush_all()
+            self.env.invalidate_all()
+
             # Por qué: Reconciliación de seguridad si el group no reconcilió automáticamente
             for g in grouped.values():
                 orig_pay = g["orig_pay"]
@@ -378,7 +420,39 @@ class AccountMoveReversal(models.TransientModel):
                     if orig_ar and ref_ar:
                         (orig_ar | ref_ar).reconcile()
 
-        # 5.5) Procesar albaranes y devoluciones
+        # 5.5) Conciliación final integral de seguridad
+        # Por qué: Catch-all para garantizar que TODO quede conciliado
+        # Si las fases anteriores ya conciliaron, este bloque no hace nada (filtra reconciled)
+        self.env.flush_all()
+        self.env.invalidate_all()
+
+        for inv in invoices:
+            inv_cns = cn_by_inv.get(inv.id, self.env["account.move"])
+
+            # Factura ↔ NC: conciliar AR pendientes
+            for cn in inv_cns:
+                pending_ar = (
+                    self._get_receivable_lines(inv) | self._get_receivable_lines(cn)
+                ).filtered(lambda l: not l.reconciled)
+                for acc in pending_ar.mapped("account_id"):
+                    to_rec = pending_ar.filtered(lambda l, a=acc: l.account_id == a)
+                    if len(to_rec) >= 2:
+                        to_rec.reconcile()
+
+            # Cobro inbound ↔ Reversión outbound: conciliar AR pendientes
+            for r in refunds_log_by_inv.get(inv.id, []):
+                orig_pay = r["orig_payment"]
+                refund_pay = r["refund_payment"]
+                pending_ar = (
+                    self._get_receivable_lines(orig_pay.move_id)
+                    | self._get_receivable_lines(refund_pay.move_id)
+                ).filtered(lambda l: not l.reconciled)
+                for acc in pending_ar.mapped("account_id"):
+                    to_rec = pending_ar.filtered(lambda l, a=acc: l.account_id == a)
+                    if len(to_rec) >= 2:
+                        to_rec.reconcile()
+
+        # 5.6) Procesar albaranes y devoluciones
         pickings_log_by_inv = {inv.id: [] for inv in invoices}
 
         for inv in invoices:
