@@ -274,8 +274,10 @@ class AccountMoveReversal(models.TransientModel):
                 # Por qué: refund_moves() → _post() puede auto-conciliar la NC con el cobro
                 # (que quedó libre tras el unlink) en vez de con la factura.
                 # Si eso pasó, deshacemos esas conciliaciones incorrectas.
-                self.env.flush_all()
-                self.env.invalidate_all()
+                # Por qué: flush_model() solo recomputa account.move.line, evitando gatillar
+                # automaciones de otros modelos (ej: sale.order.line con base_automation singleton bug)
+                self.env["account.move.line"].flush_model()
+                self.env["account.move.line"].invalidate_model(flush=False)
 
                 cn_ar = self._get_receivable_lines(cn)
                 for cn_line in cn_ar.filtered(lambda l: l.reconciled):
@@ -294,8 +296,8 @@ class AccountMoveReversal(models.TransientModel):
                         wrong_partials.unlink()
 
                 # Por qué: Flush tras deshacer conciliaciones incorrectas
-                self.env.flush_all()
-                self.env.invalidate_all()
+                self.env["account.move.line"].flush_model()
+                self.env["account.move.line"].invalidate_model(flush=False)
 
                 inv_ar = self._get_receivable_lines(inv)
                 cn_ar = self._get_receivable_lines(cn)
@@ -401,8 +403,10 @@ class AccountMoveReversal(models.TransientModel):
 
             # Por qué: Forzar persistencia y recálculo tras postear payment group
             # para que la conciliación de seguridad lea datos frescos
-            self.env.flush_all()
-            self.env.invalidate_all()
+            # Patrón: flush_model() solo recomputa account.move.line, evitando gatillar
+            # automaciones de otros modelos (ej: sale.order.line con base_automation singleton bug)
+            self.env["account.move.line"].flush_model()
+            self.env["account.move.line"].invalidate_model(flush=False)
 
             # Por qué: Reconciliación de seguridad si el group no reconcilió automáticamente
             for g in grouped.values():
