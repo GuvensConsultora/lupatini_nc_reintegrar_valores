@@ -6,14 +6,14 @@
     <field name="inherit_id" ref="account.view_account_move_reversal"/>
     <field name="arch" type="xml">
 
-      <!-- Por qué: Ocultar "Revertir" estándar, solo se usa nuestro botón personalizado -->
+      <!-- Por qué: Restringir "Revertir" estándar solo a usuarios con permiso de registrar contablemente -->
       <xpath expr="//footer/button[@name='refund_moves']" position="attributes">
-        <attribute name="invisible">1</attribute>
+        <attribute name="groups">account.group_account_manager</attribute>
       </xpath>
 
-      <!-- Por qué: Ocultar "Revertir y crear factura rectificativa", no aplica a este flujo -->
+      <!-- Por qué: Restringir "Revertir y crear factura rectificativa" al mismo grupo -->
       <xpath expr="//footer/button[@name='modify_moves']" position="attributes">
-        <attribute name="invisible">1</attribute>
+        <attribute name="groups">account.group_account_manager</attribute>
       </xpath>
 
       <!-- Por qué: Agregar nuestro botón como único primario del wizard -->

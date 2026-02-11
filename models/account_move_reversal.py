@@ -239,8 +239,10 @@ class AccountMoveReversal(models.TransientModel):
 
         # Por qué: Forzar recálculo de amount_residual y reconciled (campos stored)
         # tras eliminar account.partial.reconcile — sin esto el ORM puede leer cache viejo
-        self.env.flush_all()
-        self.env.invalidate_all()
+        # Patrón: flush_model() solo recomputa account.move.line, evitando gatillar
+        # automaciones de otros modelos (ej: sale.order.line con base_automation)
+        self.env["account.move.line"].flush_model()
+        self.env["account.move.line"].invalidate_model(flush=False)
 
         # 3) Crear NC con wizard estándar
         if hasattr(self, "refund_moves"):
@@ -423,8 +425,10 @@ class AccountMoveReversal(models.TransientModel):
         # 5.5) Conciliación final integral de seguridad
         # Por qué: Catch-all para garantizar que TODO quede conciliado
         # Si las fases anteriores ya conciliaron, este bloque no hace nada (filtra reconciled)
-        self.env.flush_all()
-        self.env.invalidate_all()
+        # Patrón: flush_model() solo recomputa account.move.line, evitando gatillar
+        # automaciones de otros modelos (ej: sale.order.line con base_automation)
+        self.env["account.move.line"].flush_model()
+        self.env["account.move.line"].invalidate_model(flush=False)
 
         for inv in invoices:
             inv_cns = cn_by_inv.get(inv.id, self.env["account.move"])
